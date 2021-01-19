@@ -28,7 +28,6 @@ class BaseModel(torch.nn.Module):
         if mode == 'pre-trained':
             strict = False
         elif mode == 'trained':
-            state_dict = state_dict['state_dict']
             strict = True
         else:
             raise NotImplementedError()
@@ -47,7 +46,7 @@ def softplus_evidence(logits: torch.Tensor) -> torch.Tensor:
     return F.softplus(logits)
 
 
-def KL(alpha: torch.Tensor, num_classes, device="cpu"):
+def KL(alpha: torch.Tensor, num_classes):
     beta = torch.ones([1, num_classes], dtype=torch.float32, device=alpha.device)
     S_alpha = torch.sum(alpha, dim=1, keepdim=True)
     S_beta = torch.sum(beta, dim=1, keepdim=True)
@@ -83,6 +82,12 @@ def mse_loss(
 
     return loglikelihood + kl_div
 
+def one_hot_embedding(
+        labels: torch.Tensor,
+        num_classes: int
+) -> torch.Tensor:
+    y = torch.eye(num_classes, device=labels.device)
+    return y[labels]
 
 def edl_mse_loss(
         logits: torch.Tensor,
@@ -91,7 +96,7 @@ def edl_mse_loss(
         num_classes: int,
         annealing_step: int,
 ):
-
+    target = one_hot_embedding(target, num_classes)
     evidence = relu_evidence(logits)
     alpha = evidence + 1
 

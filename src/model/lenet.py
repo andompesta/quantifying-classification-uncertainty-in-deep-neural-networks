@@ -1,16 +1,17 @@
 import torch
 from torch.nn import functional as F
 from .utils import BaseModel
+from  src.conf import LeNetConf
 
 class LeNet(BaseModel):
-    def __init__(self, conf):
+    def __init__(self, conf: LeNetConf):
         super(LeNet, self).__init__(conf)
 
         self.conv1 = torch.nn.Conv2d(
-                in_channels=conf.conv1_in,
-                kernel_size=conf.conv1_size,
-                out_channels=conf.conv1_out
-            )
+            in_channels=conf.conv1_in,
+            kernel_size=conf.conv1_size,
+            out_channels=conf.conv1_out
+        )
 
         self.conv2 = torch.nn.Conv2d(
             in_channels=conf.conv2_in,
