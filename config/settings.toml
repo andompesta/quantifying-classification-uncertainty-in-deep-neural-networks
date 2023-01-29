@@ -1,5 +1,5 @@
 [default]
-ckp_dir = '/home/andompesta/Projects/quantifying-classification-uncertainty-in-deep-neural-networks/checkpoint'
-run_dir = '/home/andompesta/Projects/quantifying-classification-uncertainty-in-deep-neural-networks/run'
-data_dir = '/home/andompesta/Projects/quantifying-classification-uncertainty-in-deep-neural-networks/data'
-exp_dir = '/home/andompesta/Projects/quantifying-classification-uncertainty-in-deep-neural-networks/export'
+ckp_dir = '/home/ando/Projects/quantifying-classification-uncertainty-in-deep-neural-networks/checkpoint'
+run_dir = '/home/ando/Projects/quantifying-classification-uncertainty-in-deep-neural-networks/run'
+data_dir = '/home/ando/Projects/quantifying-classification-uncertainty-in-deep-neural-networks/data'
+exp_dir = '/home/ando/Projects/quantifying-classification-uncertainty-in-deep-neural-networks/export'

@@ -1,93 +1,29 @@
-
+from datetime import datetime
 from torch.utils.data import DataLoader
 import argparse
 import torch.optim as optim
 import torch
 from typing import *
+from dynaconf import settings
+from os import path
 from src.conf import LeNetConf
-from src.model import LeNet, BaseModel, edl_mse_loss
+from src.model import LeNet
+from src.task import UncertaintyTask
 from src.utils.dataset import get_mnist_dataset, mnist_collate
-
+from src.utils import save_checkpoint
+from src.utils.plot import create_timeseries, plot_scalars
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--batch_size", default=1000)
-    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--device", default="cpu")
     parser.add_argument("--epochs", default=50, type=int,
                         help="Desired number of epochs.")
     parser.add_argument("--max_grad_norm", default=1., type=float)
+    parser.add_argument("--eval_every", default=5, type=int)
 
     return parser.parse_args()
 
-
-def train_fn(
-        dl: DataLoader,
-        model: BaseModel,
-        optim: optim.Optimizer,
-        scheduler: optim.lr_scheduler.LambdaLR,
-        device: torch.device,
-        steps: int,
-        epoch: int,
-        args: argparse.Namespace
-):
-    total_loss = 0
-    total_correct = 0
-    evidence = 0
-    num_predictions = 0
-    model.train()
-
-    def one_hot_embedding(
-            labels: torch.Tensor,
-            num_classes=model.conf.num_labels
-    ) -> torch.Tensor:
-        y = torch.eye(num_classes, device=labels.device)
-        return y[labels]
-
-
-
-    for i, (x, labels) in enumerate(dl):
-        x = x.to(device)
-        labels = labels.to(device)
-        optim.zero_grad()
-
-        with torch.set_grad_enabled(True):
-            y = one_hot_embedding(labels)
-
-            logits_t = model(x)
-
-            loss_t, evidence, uncertanty, prob_t = edl_mse_loss(
-                logits_t,
-                y,
-                epoch,
-                model.conf.num_labels,
-                annealing_step=10
-            )
-            loss_t = loss_t.mean()
-
-            loss_t.backward()
-            # torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
-
-            optim.step()
-            if scheduler is not None:
-                scheduler.step()
-            steps += 1
-
-        _, preds = torch.max(logits_t, 1)
-        match = torch.eq(preds, labels).float()
-        total_correct += match.sum().item()
-        num_predictions += labels.size(0)
-
-        # total_evidence = evidence.sum(dim=1, keepdims=True)
-        # mean_evidence = total_evidence.mean()
-        # mean_ev_succ = (total_evidence * match) / torch.sum(match + 1e-20)
-        # mean_ev_fail = (total_evidence * (1 - match)) / (torch.sum(torch.abs(1 - match)) + 1e-20)
-
-        total_loss += loss_t.item()
-
-    total_loss /= i + 1
-    accuracy = total_correct / num_predictions
-
-    return steps, total_loss, accuracy
 
 
 def get_group_params(
@@ -149,26 +85,111 @@ if __name__ == '__main__':
         collate_fn=mnist_collate
     )
 
+    task = UncertaintyTask(
+        "uncertainty-estimation"
+    )
+    exp_name = f'exp-{task.name}-MNIST-{model.name}-{datetime.now().strftime("%d-%m-%y_%H-%M-%S")}'
 
+    best_f1 = 0.
     global_step = 0
     losses = []
     train_accuracy = []
+    train_epochs = []
+
+    eval_epochs = []
+    eval_accuracy = []
+    eval_precision = []
+    eval_recall = []
+    eval_f_score = []
 
     for epoch in range(args.epochs):
         print(f"epoch {epoch}")
 
-        global_step, loss, accuracy = train_fn(
-            train_dl,
-            model,
-            optimizer,
-            None,
-            device,
-            global_step,
-            epoch,
-            args
+        global_step, loss, acc = task.train(
+            dl=train_dl,
+            model=model,
+            optimizer=optimizer,
+            scheduler=None,
+            device=device,
+            steps=global_step,
+            epoch=epoch
         )
         losses.append(loss)
-        train_accuracy.append(accuracy)
+        train_accuracy.append(acc)
+        train_epochs.append(epoch)
 
-        print(f"loss:{loss}\taccuracy:{accuracy}")
+        print(f"loss:{loss}\taccuracy:{acc}")
 
+        if epoch == 0 or epoch % args.eval_every == 0:
+            ret = task.eval(
+                test_dl,
+                model,
+                device
+            )
+
+            acc, prec, rec, f_score = ret.get("scores")
+            print(f"--> eval - acc:{acc}\tprec:{prec}\trec:{rec}\tf1:{f_score}")
+
+            eval_epochs.append(epoch)
+            eval_accuracy.append(acc)
+            eval_precision.append(prec)
+            eval_recall.append(rec)
+            eval_f_score.append(f_score)
+
+            if f_score > best_f1:
+                best_f1 = f_score
+                state_dict = model.state_dict()
+                state_dict = dict([(k, v.cpu()) for k, v in state_dict.items()])
+
+                save_checkpoint(
+                    path_=path.join(
+                        settings.get("ckp_dir"),
+                        exp_name
+                    ),
+                    state=state_dict,
+                    is_best=False
+                )
+
+    train_timeseries = [
+        create_timeseries(t, n, train_epochs) for t, n in [
+            (train_accuracy, "accuracy"), (losses, "loss")
+        ]
+    ]
+    plot_scalars(
+        path.join(
+            settings.get("run_dir"),
+            exp_name,
+            "train.png"
+        ),
+        train_timeseries
+    )
+
+    test_timeseries = [
+        create_timeseries(t, n, eval_epochs) for t, n in [
+            (eval_accuracy, "accuracy"),
+            (eval_precision, "precision"),
+            (eval_recall, "recall"),
+            (eval_f_score, "f_score")
+        ]
+    ]
+    plot_scalars(
+        path.join(
+            settings.get("run_dir"),
+            exp_name,
+            "test.png"
+        ),
+        test_timeseries
+    )
+
+    digit_one, _ = test[5]
+    task.uncertanty_rotate(
+        model,
+        digit_one,
+        path_=path.join(
+            settings.get("run_dir"),
+            exp_name,
+            "rotate_img.png"
+        ),
+        device=device,
+        threshold=.7
+    )
